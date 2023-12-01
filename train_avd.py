@@ -9,8 +9,11 @@ from frames_dataset import DatasetRepeater
 def random_scale(kp_params, scale):
     theta = torch.rand(kp_params['fg_kp'].shape[0], 2) * (2 * scale) + (1 - scale)
     theta = torch.diag_embed(theta).unsqueeze(1).type(kp_params['fg_kp'].type())
-    new_kp_params = {'fg_kp': torch.matmul(theta, kp_params['fg_kp'].unsqueeze(-1)).squeeze(-1)}
-    return new_kp_params
+    return {
+        'fg_kp': torch.matmul(theta, kp_params['fg_kp'].unsqueeze(-1)).squeeze(
+            -1
+        )
+    }
 
 
 def train_avd(config, inpainting_network, kp_detector, bg_predictor, dense_motion_network, 
@@ -19,14 +22,13 @@ def train_avd(config, inpainting_network, kp_detector, bg_predictor, dense_motio
 
     optimizer = torch.optim.Adam(avd_network.parameters(), lr=train_params['lr'], betas=(0.5, 0.999))
 
-    if checkpoint is not None:
-        Logger.load_cpk(checkpoint, inpainting_network=inpainting_network, kp_detector=kp_detector,
-                                      bg_predictor=bg_predictor, avd_network=avd_network,
-                                      dense_motion_network= dense_motion_network,optimizer_avd=optimizer)
-        start_epoch = 0
-    else:
+    if checkpoint is None:
         raise AttributeError("Checkpoint should be specified for mode='train_avd'.")
 
+    Logger.load_cpk(checkpoint, inpainting_network=inpainting_network, kp_detector=kp_detector,
+                                  bg_predictor=bg_predictor, avd_network=avd_network,
+                                  dense_motion_network= dense_motion_network,optimizer_avd=optimizer)
+    start_epoch = 0
     scheduler = MultiStepLR(optimizer, train_params['epoch_milestones'], gamma=0.1)
 
     if 'num_repeats' in train_params or train_params['num_repeats'] != 1:
@@ -48,10 +50,10 @@ def train_avd(config, inpainting_network, kp_detector, bg_predictor, dense_motio
 
                 reconstruction_kp = train_params['lambda_shift'] * \
                                        torch.abs(kp_driving_gt['fg_kp'] - rec['fg_kp']).mean()
-                
+
                 loss_dict = {'rec_kp': reconstruction_kp}
                 loss = reconstruction_kp
-                
+
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()

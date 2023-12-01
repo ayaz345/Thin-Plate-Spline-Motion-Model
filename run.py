@@ -47,13 +47,13 @@ if __name__ == "__main__":
                                         **config['model_params']['common_params'])
 
     if torch.cuda.is_available():
-        cuda_device = torch.device('cuda:'+str(opt.device_ids[0]))
+        cuda_device = torch.device(f'cuda:{str(opt.device_ids[0])}')
         inpainting.to(cuda_device)
 
     kp_detector = KPDetector(**config['model_params']['common_params'])
     dense_motion_network = DenseMotionNetwork(**config['model_params']['common_params'],
                                               **config['model_params']['dense_motion_params'])
-                                                           
+
     if torch.cuda.is_available():
         kp_detector.to(opt.device_ids[0])
         dense_motion_network.to(opt.device_ids[0])

@@ -45,8 +45,7 @@ class Vgg19(torch.nn.Module):
         h_relu3 = self.slice3(h_relu2)
         h_relu4 = self.slice4(h_relu3)
         h_relu5 = self.slice5(h_relu4)
-        out = [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
-        return out
+        return [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
 
 
 class ImagePyramide(torch.nn.Module):
@@ -55,16 +54,19 @@ class ImagePyramide(torch.nn.Module):
     """
     def __init__(self, scales, num_channels):
         super(ImagePyramide, self).__init__()
-        downs = {}
-        for scale in scales:
-            downs[str(scale).replace('.', '-')] = AntiAliasInterpolation2d(num_channels, scale)
+        downs = {
+            str(scale).replace('.', '-'): AntiAliasInterpolation2d(
+                num_channels, scale
+            )
+            for scale in scales
+        }
         self.downs = nn.ModuleDict(downs)
 
     def forward(self, x):
-        out_dict = {}
-        for scale, down_module in self.downs.items():
-            out_dict['prediction_' + str(scale).replace('-', '.')] = down_module(x)
-        return out_dict
+        return {
+            'prediction_' + str(scale).replace('-', '.'): down_module(x)
+            for scale, down_module in self.downs.items()
+        }
 
 
 def detach_kp(kp):
@@ -110,10 +112,10 @@ class GeneratorFullModel(torch.nn.Module):
         kp_source = self.kp_extractor(x['source'])
         kp_driving = self.kp_extractor(x['driving'])
         bg_param = None
-        if self.bg_predictor:
-            if(epoch>=self.bg_start):
+        if (epoch>=self.bg_start):
+            if self.bg_predictor:
                 bg_param = self.bg_predictor(x['source'], x['driving'])
-          
+
         if(epoch>=self.dropout_epoch):
             dropout_flag = False
             dropout_p = 0
@@ -121,7 +123,7 @@ class GeneratorFullModel(torch.nn.Module):
             # dropout_p will linearly increase from dropout_startp to dropout_maxp 
             dropout_flag = True
             dropout_p = min(epoch/self.dropout_inc_epoch * self.dropout_maxp + self.dropout_startp, self.dropout_maxp)
-        
+
         dense_motion = self.dense_motion_network(source_image=x['source'], kp_driving=kp_driving,
                                                     kp_source=kp_source, bg_param = bg_param, 
                                                     dropout_flag = dropout_flag, dropout_p = dropout_p)
@@ -137,8 +139,8 @@ class GeneratorFullModel(torch.nn.Module):
         if sum(self.loss_weights['perceptual']) != 0:
             value_total = 0
             for scale in self.scales:
-                x_vgg = self.vgg(pyramide_generated['prediction_' + str(scale)])
-                y_vgg = self.vgg(pyramide_real['prediction_' + str(scale)])
+                x_vgg = self.vgg(pyramide_generated[f'prediction_{str(scale)}'])
+                y_vgg = self.vgg(pyramide_real[f'prediction_{str(scale)}'])
 
                 for i, weight in enumerate(self.loss_weights['perceptual']):
                     value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
@@ -154,7 +156,7 @@ class GeneratorFullModel(torch.nn.Module):
 
             generated['transformed_frame'] = transformed_frame
             generated['transformed_kp'] = transformed_kp
-        
+
             warped = transform_random.warp_coordinates(transformed_kp['fg_kp'])
             kp_d = kp_driving['fg_kp']
             value = torch.abs(kp_d - warped).mean()
@@ -165,12 +167,12 @@ class GeneratorFullModel(torch.nn.Module):
             occlusion_map = generated['occlusion_map']
             encode_map = self.inpainting_network.get_encode(x['driving'], occlusion_map)
             decode_map = generated['warped_encoder_maps']
-            value = 0
-            for i in range(len(encode_map)):
-                value += torch.abs(encode_map[i]-decode_map[-i-1]).mean()
-
+            value = sum(
+                torch.abs(encode_map[i] - decode_map[-i - 1]).mean()
+                for i in range(len(encode_map))
+            )
             loss_values['warp_loss'] = self.loss_weights['warp_loss'] * value
-        
+
         # bg loss
         if self.bg_predictor and epoch >= self.bg_start and self.loss_weights['bg'] != 0:
             bg_param_reverse = self.bg_predictor(x['driving'], x['source'])

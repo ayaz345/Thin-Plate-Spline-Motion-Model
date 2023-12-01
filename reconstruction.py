@@ -23,7 +23,7 @@ def reconstruction(config, inpainting_network, kp_detector, bg_predictor, dense_
 
     if not os.path.exists(png_dir):
         os.makedirs(png_dir)
-    
+
     loss_list = []
 
     inpainting_network.eval()
@@ -46,7 +46,7 @@ def reconstruction(config, inpainting_network, kp_detector, bg_predictor, dense_
                 bg_params = None
                 if bg_predictor:
                     bg_params = bg_predictor(source, driving)
-                
+
                 dense_motion = dense_motion_network(source_image=source, kp_driving=kp_driving,
                                                     kp_source=kp_source, bg_param = bg_params, 
                                                     dropout_flag = False)
@@ -60,10 +60,10 @@ def reconstruction(config, inpainting_network, kp_detector, bg_predictor, dense_
                                                                                    driving=driving, out=out)
                 visualizations.append(visualization)
                 loss = torch.abs(out['prediction'] - driving).mean().cpu().numpy()
-                
+
                 loss_list.append(loss)
             # print(np.mean(loss_list))
             predictions = np.concatenate(predictions, axis=1)
             imageio.imsave(os.path.join(png_dir, x['name'][0] + '.png'), (255 * predictions).astype(np.uint8))
 
-    print("Reconstruction loss: %s" % np.mean(loss_list))
+    print(f"Reconstruction loss: {np.mean(loss_list)}")

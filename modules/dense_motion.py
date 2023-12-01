@@ -27,27 +27,28 @@ class DenseMotionNetwork(nn.Module):
         self.maps = nn.Conv2d(hourglass_output_size[-1], num_tps + 1, kernel_size=(7, 7), padding=(3, 3))
 
         if multi_mask:
-            up = []
             self.up_nums = int(math.log(1/scale_factor, 2))
             self.occlusion_num = 4
-            
+
             channel = [hourglass_output_size[-1]//(2**i) for i in range(self.up_nums)]
-            for i in range(self.up_nums):
-                up.append(UpBlock2d(channel[i], channel[i]//2, kernel_size=3, padding=1))
+            up = [
+                UpBlock2d(channel[i], channel[i] // 2, kernel_size=3, padding=1)
+                for i in range(self.up_nums)
+            ]
             self.up = nn.ModuleList(up)
 
             channel = [hourglass_output_size[-i-1] for i in range(self.occlusion_num-self.up_nums)[::-1]]
-            for i in range(self.up_nums):
-                channel.append(hourglass_output_size[-1]//(2**(i+1)))
-            occlusion = []
-            
-            for i in range(self.occlusion_num):
-                occlusion.append(nn.Conv2d(channel[i], 1, kernel_size=(7, 7), padding=(3, 3)))
-            self.occlusion = nn.ModuleList(occlusion)
+            channel.extend(
+                hourglass_output_size[-1] // (2 ** (i + 1))
+                for i in range(self.up_nums)
+            )
+            occlusion = [
+                nn.Conv2d(channel[i], 1, kernel_size=(7, 7), padding=(3, 3))
+                for i in range(self.occlusion_num)
+            ]
         else:
             occlusion = [nn.Conv2d(hourglass_output_size[-1], 1, kernel_size=(7, 7), padding=(3, 3))]
-            self.occlusion = nn.ModuleList(occlusion)
-
+        self.occlusion = nn.ModuleList(occlusion)
         self.num_tps = num_tps
         self.bg = bg
         self.kp_variance = kp_variance
@@ -80,13 +81,12 @@ class DenseMotionNetwork(nn.Module):
         identity_grid = identity_grid.repeat(bs, 1, 1, 1, 1)
 
         # affine background transformation
-        if not (bg_param is None):            
+        if bg_param is not None:            
             identity_grid = to_homogeneous(identity_grid)
             identity_grid = torch.matmul(bg_param.view(bs, 1, 1, 1, 3, 3), identity_grid.unsqueeze(-1)).squeeze(-1)
             identity_grid = from_homogeneous(identity_grid)
 
-        transformations = torch.cat([identity_grid, driving_to_source], dim=1)
-        return transformations
+        return torch.cat([identity_grid, driving_to_source], dim=1)
 
     def create_deformed_source_image(self, source_image, transformations):
 
@@ -133,7 +133,7 @@ class DenseMotionNetwork(nn.Module):
 
         prediction = self.hourglass(input, mode = 1)
 
-        contribution_maps = self.maps(prediction[-1]) 
+        contribution_maps = self.maps(prediction[-1])
         if(dropout_flag):
             contribution_maps = self.dropout_softmax(contribution_maps, dropout_p)
         else:
@@ -151,14 +151,20 @@ class DenseMotionNetwork(nn.Module):
 
         occlusion_map = []
         if self.multi_mask:
-            for i in range(self.occlusion_num-self.up_nums):
-                occlusion_map.append(torch.sigmoid(self.occlusion[i](prediction[self.up_nums-self.occlusion_num+i])))
+            occlusion_map.extend(
+                torch.sigmoid(
+                    self.occlusion[i](
+                        prediction[self.up_nums - self.occlusion_num + i]
+                    )
+                )
+                for i in range(self.occlusion_num - self.up_nums)
+            )
             prediction = prediction[-1]
             for i in range(self.up_nums):
                 prediction = self.up[i](prediction)
                 occlusion_map.append(torch.sigmoid(self.occlusion[i+self.occlusion_num-self.up_nums](prediction)))
         else:
             occlusion_map.append(torch.sigmoid(self.occlusion[0](prediction[-1])))
-                
+
         out_dict['occlusion_map'] = occlusion_map # Multi-resolution Occlusion Masks
         return out_dict

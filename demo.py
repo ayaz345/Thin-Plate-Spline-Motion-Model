@@ -24,7 +24,7 @@ def relative_kp(kp_source, kp_driving, kp_driving_initial):
     driving_area = ConvexHull(kp_driving_initial['fg_kp'][0].data.cpu().numpy()).volume
     adapt_movement_scale = np.sqrt(source_area) / np.sqrt(driving_area)
 
-    kp_new = {k: v for k, v in kp_driving.items()}
+    kp_new = dict(kp_driving.items())
 
     kp_value_diff = (kp_driving['fg_kp'] - kp_driving_initial['fg_kp'])
     kp_value_diff *= adapt_movement_scale
@@ -131,12 +131,12 @@ if __name__ == "__main__":
     parser.add_argument("--source_image", default='./assets/source.png', help="path to source image")
     parser.add_argument("--driving_video", default='./assets/driving.mp4', help="path to driving video")
     parser.add_argument("--result_video", default='./result.mp4', help="path to output")
-    
+
     parser.add_argument("--img_shape", default="256,256", type=lambda x: list(map(int, x.split(','))),
                         help='Shape of image, that the model was trained on.')
-    
+
     parser.add_argument("--mode", default='relative', choices=['standard', 'relative', 'avd'], help="Animate mode: ['standard', 'relative', 'avd'], when use the relative mode to animate a face, use '--find_best_frame' can get better quality result")
-    
+
     parser.add_argument("--find_best_frame", dest="find_best_frame", action="store_true", 
                         help="Generate from the frame that is the most alligned with source. (Only for faces, requires face_aligment lib)")
 
@@ -149,24 +149,19 @@ if __name__ == "__main__":
     fps = reader.get_meta_data()['fps']
     driving_video = []
     try:
-        for im in reader:
-            driving_video.append(im)
+        driving_video.extend(iter(reader))
     except RuntimeError:
         pass
     reader.close()
-    
-    if opt.cpu:
-        device = torch.device('cpu')
-    else:
-        device = torch.device('cuda')
-    
+
+    device = torch.device('cpu') if opt.cpu else torch.device('cuda')
     source_image = resize(source_image, opt.img_shape)[..., :3]
     driving_video = [resize(frame, opt.img_shape)[..., :3] for frame in driving_video]
     inpainting, kp_detector, dense_motion_network, avd_network = load_checkpoints(config_path = opt.config, checkpoint_path = opt.checkpoint, device = device)
- 
+
     if opt.find_best_frame:
         i = find_best_frame(source_image, driving_video, opt.cpu)
-        print ("Best frame: " + str(i))
+        print(f"Best frame: {str(i)}")
         driving_forward = driving_video[i:]
         driving_backward = driving_video[:(i+1)][::-1]
         predictions_forward = make_animation(source_image, driving_forward, inpainting, kp_detector, dense_motion_network, avd_network, device = device, mode = opt.mode)
@@ -174,6 +169,6 @@ if __name__ == "__main__":
         predictions = predictions_backward[::-1] + predictions_forward[1:]
     else:
         predictions = make_animation(source_image, driving_video, inpainting, kp_detector, dense_motion_network, avd_network, device = device, mode = opt.mode)
-    
+
     imageio.mimsave(opt.result_video, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 

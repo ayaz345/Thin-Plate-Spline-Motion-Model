@@ -84,8 +84,7 @@ class Predictor(BasePredictor):
 
         driving_video = []
         try:
-            for im in reader:
-                driving_video.append(im)
+            driving_video.extend(iter(reader))
         except RuntimeError:
             pass
         reader.close()

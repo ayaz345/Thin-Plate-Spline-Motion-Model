@@ -27,8 +27,16 @@ class InpaintingNetwork(nn.Module):
             if i==num_down_blocks-1:
                 decoder_in_feature = out_features
             up_blocks.append(UpBlock2d(decoder_in_feature, in_features, kernel_size=(3, 3), padding=(1, 1)))
-            resblock.append(ResBlock2d(decoder_in_feature, kernel_size=(3, 3), padding=(1, 1)))
-            resblock.append(ResBlock2d(decoder_in_feature, kernel_size=(3, 3), padding=(1, 1)))
+            resblock.extend(
+                (
+                    ResBlock2d(
+                        decoder_in_feature, kernel_size=(3, 3), padding=(1, 1)
+                    ),
+                    ResBlock2d(
+                        decoder_in_feature, kernel_size=(3, 3), padding=(1, 1)
+                    ),
+                )
+            )
         self.down_blocks = nn.ModuleList(down_blocks)
         self.up_blocks = nn.ModuleList(up_blocks[::-1])
         self.resblock = nn.ModuleList(resblock[::-1])
@@ -49,23 +57,21 @@ class InpaintingNetwork(nn.Module):
         if not self.multi_mask:
             if inp.shape[2] != occlusion_map.shape[2] or inp.shape[3] != occlusion_map.shape[3]:
                 occlusion_map = F.interpolate(occlusion_map, size=inp.shape[2:], mode='bilinear',align_corners=True)
-        out = inp * occlusion_map
-        return out
+        return inp * occlusion_map
 
     def forward(self, source_image, dense_motion):
-        out = self.first(source_image) 
+        out = self.first(source_image)
         encoder_map = [out]
         for i in range(len(self.down_blocks)):
             out = self.down_blocks[i](out)
             encoder_map.append(out)
 
-        output_dict = {}
-        output_dict['contribution_maps'] = dense_motion['contribution_maps']
-        output_dict['deformed_source'] = dense_motion['deformed_source']
-
         occlusion_map = dense_motion['occlusion_map']
-        output_dict['occlusion_map'] = occlusion_map
-
+        output_dict = {
+            'contribution_maps': dense_motion['contribution_maps'],
+            'deformed_source': dense_motion['deformed_source'],
+            'occlusion_map': occlusion_map,
+        }
         deformation = dense_motion['deformation']
         out_ij = self.deform_input(out.detach(), deformation)
         out = self.deform_input(out, deformation)
@@ -73,19 +79,17 @@ class InpaintingNetwork(nn.Module):
         out_ij = self.occlude_input(out_ij, occlusion_map[0].detach())
         out = self.occlude_input(out, occlusion_map[0])
 
-        warped_encoder_maps = []
-        warped_encoder_maps.append(out_ij)
-
+        warped_encoder_maps = [out_ij]
         for i in range(self.num_down_blocks):
-            
+
             out = self.resblock[2*i](out)
             out = self.resblock[2*i+1](out)
             out = self.up_blocks[i](out)
-            
+
             encode_i = encoder_map[-(i+2)]
             encode_ij = self.deform_input(encode_i.detach(), deformation)
             encode_i = self.deform_input(encode_i, deformation)
-            
+
             occlusion_ind = 0
             if self.multi_mask:
                 occlusion_ind = i+1
@@ -116,8 +120,7 @@ class InpaintingNetwork(nn.Module):
 
     def get_encode(self, driver_image, occlusion_map):
         out = self.first(driver_image)
-        encoder_map = []
-        encoder_map.append(self.occlude_input(out.detach(), occlusion_map[-1].detach()))
+        encoder_map = [self.occlude_input(out.detach(), occlusion_map[-1].detach())]
         for i in range(len(self.down_blocks)):
             out = self.down_blocks[i](out.detach())
             out_mask = self.occlude_input(out.detach(), occlusion_map[2-i].detach())

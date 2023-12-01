@@ -22,6 +22,4 @@ class KPDetector(nn.Module):
         bs, _, = fg_kp.shape
         fg_kp = torch.sigmoid(fg_kp)
         fg_kp = fg_kp * 2 - 1
-        out = {'fg_kp': fg_kp.view(bs, self.num_tps*5, -1)}
-
-        return out
+        return {'fg_kp': fg_kp.view(bs, self.num_tps*5, -1)}
